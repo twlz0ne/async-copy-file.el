@@ -24,7 +24,22 @@
 
 ;;; Commentary:
 
+;; Copy files asynchronously in Emacs
 ;; 
+;; ,---elisp
+;; |(async-copy-file url-or-local-file
+;; |                 output-dir
+;; |                 ;; following are optional
+;; |                 :overwrite t
+;; |                 :extract-arg '(unzip :strip-components 1)
+;; |                 ;; :dry-run t
+;; |                 :finish-fn
+;; |                 (lambda (output-buffer)
+;; |                   (kill-buffer output-buffer)
+;; |                   (message "==> Finish callback")))
+;; `---
+;; 
+;; See README for more information.
 
 ;;; Change Log:
 
@@ -91,6 +106,20 @@
           to)))
 
 (cl-defun async-copy-file (from to &key overwrite extract-arg finish-fn dry-run &allow-other-keys)
+  "Copy file FROM to TO.
+FROM can be a local file path or an url.
+If :OVERWRITE is non-nil, overwrite the existing file at TO.
+:EXTRACT-ARG specifies how to treat the file FROM, nil to do nothing,
+or `unzip'/`tar' to extract the file. Both `unzip' and `tar' support 
+optional paramemter `:strip-compoments', for example:
+
+        :extract-arg 'unzip
+        ;; Equals =>
+        ;; :extract-arg '(unzip :strip-components 0)
+        :extract-arg '(unzip :strip-components 1)
+
+:FINISH-FN let user to do something after process finished.
+If :DRY-RUN not nil, print the final commands instead of executing."
   (let* ((final-commands nil)
          (url? (string-match-p "^https?://" from))
          (call-chain from))
@@ -120,13 +149,11 @@
                      (async-shell-command final-commands output-buffer)
                      (get-buffer-process output-buffer))))
         (when (process-live-p proc)
-          (message "==> Start proc")
           (set-process-sentinel
            proc
            `(lambda (proc signal)
               (when (memq (process-status proc) '(exit signal))
                 (shell-command-sentinel proc signal)
-                (message "==> Finished")
                 (funcall #',finish-fn ,output-buffer)))))))))
 
 (provide 'async-copy-file)
