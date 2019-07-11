@@ -34,23 +34,20 @@
 
 (require 'cl-lib)
 
-(defun async-copy-file--copy-commands (from &optional to plist)
+(defun async-copy-file--copy-commands (from &optional plist to)
   (let ((path-from (if (consp from) (cdr from) from))
         (cmd-list (if (consp from) (car from) '()))
-        (to (or to (make-temp-file "temp-dir--" t ".copy/")))
-        (strip (plist-get plist :strip-components)))
+        (to (or to (make-temp-file "temp-dir--" t ".copy/"))))
     (cons (push
            (cond ((executable-find "cp")
                   (format "mkdir -p %s && cp -R %s %s" to
-                          (concat path-from
-                                  (if (and strip (> strip 0))
-                                      (apply 'concat (make-list (1+ strip) "/*"))))
+                          path-from
                           to))
                  (t (error "No copy tool found!")))
            cmd-list)
           to)))
 
-(defun async-copy-file--download-commands (from &optional to _plist)
+(defun async-copy-file--download-commands (from &optional _plist to)
   (let ((path-from (if (consp from) (cdr from) from))
         (cmd-list (if (consp from) (car from) '()))
         (to (or to (make-temp-file "temp-file--" nil ".download.zip"))))
@@ -61,35 +58,59 @@
            cmd-list)
           to)))
 
-(defun async-copy-file--unzip-commands (from &optional to _plist)
+(defun async-copy-file--unzip-commands (from &optional plist to)
   (let ((path-from (if (consp from) (cdr from) from))
         (cmd-list (if (consp from) (car from) '()))
-        (to (or to (make-temp-file "temp-dir--" t ".extract/"))))
+        (to (or to (make-temp-file "temp-dir--" t ".extract/")))
+        (strip (plist-get plist :strip-components)))
     (cons (push
            (cond
             ((executable-find "unzip")
              (format "mkdir -p %s && unzip %s -d %s" to path-from to))
             (t (error "No extract tool found!")))
            cmd-list)
+          (concat to
+                  (if (and strip (> strip 0))
+                      (apply 'concat (make-list (1+ strip) "/*")))))))
+
+(defun async-copy-file--tar-commands (from &optional plist to)
+  (let ((path-from (if (consp from) (cdr from) from))
+        (cmd-list (if (consp from) (car from) '()))
+        (to (or to (make-temp-file "temp-dir--" t ".extract/")))
+        (strip (plist-get plist :strip-components)))
+    (cons (push
+           (cond
+            ((executable-find "tar")
+             (format "mkdir -p %s && tar -xf %s -C %s --strip-components=%s"
+                     to
+                     path-from
+                     to
+                     (if strip strip 0)))
+            (t (error "No extract tool found!")))
+           cmd-list)
           to)))
 
-(cl-defun async-copy-file (from to &key overwrite extracter strip-components finish-fn dry-run &allow-other-keys)
+(cl-defun async-copy-file (from to &key overwrite extract-arg finish-fn dry-run &allow-other-keys)
   (let* ((final-commands nil)
          (url? (string-match-p "^https?://" from))
          (call-chain from))
 
     (when url?
-      (setq call-chain (list 'async-copy-file--download-commands call-chain)))
+      (setq call-chain `(async-copy-file--download-commands ,call-chain '())))
 
-    (when extracter
-      (cond
-       ((eq extracter 'unzip) (setq call-chain (list 'async-copy-file--unzip-commands call-chain)))
-       (t (error (format "Unknow extracter '%s'!" extracter)))))
+    (when extract-arg
+      (pcase (if (listp extract-arg) extract-arg (list extract-arg))
+        (`(unzip . ,options)
+         (setq call-chain `(async-copy-file--unzip-commands ,call-chain ',options))
+         (setq call-chain `(async-copy-file--copy-commands ,call-chain '())))
+        (`(tar . ,options)
+         (setq call-chain `(async-copy-file--tar-commands ,call-chain ',options)))
+        (_ (error (format "Unknow extract-arg: '%s'!" extract-arg)))))
 
-    (when (or (not url?) extracter)
-      (setq call-chain (list 'async-copy-file--copy-commands call-chain)))
+    (unless (or url? extract-arg)
+      (setq call-chain `(async-copy-file--copy-commands ,call-chain '())))
 
-    (setq call-chain (append call-chain (list to `(list :strip-components ,strip-components))))
+    (setq call-chain (append call-chain (list to)))
     (setq final-commands (mapconcat 'identity (reverse (car (eval call-chain))) " && "))
 
     (if dry-run
