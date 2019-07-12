@@ -124,6 +124,9 @@ If :DRY-RUN not nil, print the final commands instead of executing."
          (url? (string-match-p "^https?://" from))
          (call-chain from))
 
+    (when (and (not overwrite) (file-exists-p to))
+      (error (format "'%s' already exists!" to)))
+
     (when url?
       (setq call-chain `(async-copy-file--download-commands ,call-chain '())))
 
