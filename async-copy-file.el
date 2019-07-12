@@ -125,7 +125,7 @@ If :DRY-RUN not nil, print the final commands instead of executing."
          (call-chain from))
 
     (when (and (not overwrite) (file-exists-p to))
-      (error (format "'%s' already exists!" to)))
+      (signal 'file-already-exists (list "File or directory already exists" to)))
 
     (when url?
       (setq call-chain `(async-copy-file--download-commands ,call-chain '())))
