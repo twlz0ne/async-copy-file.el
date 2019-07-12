@@ -154,7 +154,8 @@ If :DRY-RUN not nil, print the final commands instead of executing."
            `(lambda (proc signal)
               (when (memq (process-status proc) '(exit signal))
                 (shell-command-sentinel proc signal)
-                (funcall #',finish-fn ,output-buffer)))))))))
+                (when ',finish-fn
+                  (funcall #',finish-fn ,output-buffer))))))))))
 
 (provide 'async-copy-file)
 
