@@ -61,8 +61,9 @@
   "Return an existing output buffer or creating a new one if needed."
   (or (catch 'found
         (mapc (lambda (buffer)
-                (unless (get-buffer-process buffer)
-                  (throw 'found buffer)))
+                (when (buffer-live-p buffer)
+                  (unless (get-buffer-process buffer)
+                    (throw 'found buffer))))
               async-copy-file--output-buffer-list)
         nil)
       (let ((new-buffer (generate-new-buffer async-copy-file-output-buffer-name)))
