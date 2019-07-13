@@ -25,20 +25,20 @@
 ;;; Commentary:
 
 ;; Copy files asynchronously in Emacs
-;; 
-;; ,---elisp
-;; |(async-copy-file url-or-local-file
-;; |                 output-dir
-;; |                 ;; following are optional
-;; |                 :overwrite t
-;; |                 :extract-arg '(unzip :strip-components 1)
-;; |                 ;; :dry-run t
-;; |                 :finish-fn
-;; |                 (lambda (output-buffer)
-;; |                   (kill-buffer output-buffer)
-;; |                   (message "==> Finish callback")))
+;;
+;; ,---
+;; | (async-copy-file url-or-local-file
+;; |                  output-dir
+;; |                  ;; following are optional
+;; |                  :overwrite t
+;; |                  :extract-arg '(unzip :strip-components 1)
+;; |                  ;; :dry-run t
+;; |                  :finish-fn
+;; |                  (lambda (output-buffer)
+;; |                    (kill-buffer output-buffer)
+;; |                    (message "==> Finish callback")))
 ;; `---
-;; 
+;;
 ;; See README for more information.
 
 ;;; Change Log:
@@ -68,6 +68,8 @@
       (let ((new-buffer (generate-new-buffer async-copy-file-output-buffer-name)))
         (push new-buffer async-copy-file--output-buffer-list)
         new-buffer)))
+
+;;; Commands
 
 (defun async-copy-file--copy-commands (from &optional plist to)
   (let ((path-from (if (consp from) (cdr from) from))
@@ -125,12 +127,28 @@
            cmd-list)
           to)))
 
+;;;###autoload
+(cl-defun async-copy-file-quiet (from to &key overwrite extract-arg finish-fn dry-run &allow-other-keys)
+  "Same as `async-copy-file' but without output window."
+  (interactive)
+  (let ((display-buffer-alist
+         (list
+          (cons
+           (concat (regexp-quote async-copy-file-output-buffer-name) ".*")
+           (cons #'display-buffer-no-window nil)))))
+    (async-copy-file from to
+                     :overwrite   overwrite
+                     :extract-arg extract-arg
+                     :finish-fn   finish-fn
+                     :dry-run     dry-run)))
+
+;;;###autoload
 (cl-defun async-copy-file (from to &key overwrite extract-arg finish-fn dry-run &allow-other-keys)
   "Copy file FROM to TO.
 FROM can be a local file path or an url.
 If :OVERWRITE is non-nil, overwrite the existing file at TO.
 :EXTRACT-ARG specifies how to treat the file FROM, nil to do nothing,
-or `unzip'/`tar' to extract the file. Both `unzip' and `tar' support 
+or `unzip'/`tar' to extract the file. Both `unzip' and `tar' support
 optional paramemter `:strip-compoments', for example:
 
         :extract-arg 'unzip
