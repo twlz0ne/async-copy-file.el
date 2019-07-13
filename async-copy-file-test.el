@@ -39,7 +39,7 @@
   (ignore-errors
     (delete-directory to t))
   (mkdir async-copy-file-test-output-dir t)
-  (apply 'async-copy-file from to rest))
+  (apply 'async-copy-file from to :overwrite t rest))
 
 ;;; local file
 
