@@ -49,6 +49,26 @@
 
 (require 'cl-lib)
 
+(defcustom async-copy-file-output-buffer-name "*async-copy-file*"
+  "Name of output buffer."
+  :type 'string
+  :group 'async-copy-file)
+
+(defvar async-copy-file--output-buffer-list '()
+  "Output buffer list.")
+
+(defun async-copy-file--get-buffer-create ()
+  "Return an existing output buffer or creating a new one if needed."
+  (or (catch 'found
+        (mapc (lambda (buffer)
+                (unless (get-buffer-process buffer)
+                  (throw 'found buffer)))
+              async-copy-file--output-buffer-list)
+        nil)
+      (let ((new-buffer (generate-new-buffer async-copy-file-output-buffer-name)))
+        (push new-buffer async-copy-file--output-buffer-list)
+        new-buffer)))
+
 (defun async-copy-file--copy-commands (from &optional plist to)
   (let ((path-from (if (consp from) (cdr from) from))
         (cmd-list (if (consp from) (car from) '()))
@@ -147,7 +167,7 @@ If :DRY-RUN not nil, print the final commands instead of executing."
 
     (if dry-run
         final-commands
-      (let* ((output-buffer (generate-new-buffer "*async-copy-file*"))
+      (let* ((output-buffer (async-copy-file--get-buffer-create))
              (proc (progn
                      (async-shell-command final-commands output-buffer)
                      (get-buffer-process output-buffer))))
