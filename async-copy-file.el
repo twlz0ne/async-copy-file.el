@@ -49,6 +49,8 @@
 
 (require 'cl-lib)
 
+;;; Buffer
+
 (defcustom async-copy-file-output-buffer-name "*async-copy-file*"
   "Name of output buffer."
   :type 'string
@@ -69,6 +71,64 @@
       (let ((new-buffer (generate-new-buffer async-copy-file-output-buffer-name)))
         (push new-buffer async-copy-file--output-buffer-list)
         new-buffer)))
+
+;;; Progress
+
+(declare-function spinner-start "spinner")
+(declare-function lv-message "lv")
+(declare-function lv-delete-window "lv")
+
+(defcustom async-copy-file-progress-type nil
+  "The way to display copy progress.
+
+* header-line   Show header line with last content of output buffer
+* lv-message    SHow lv message last with last content of output buffer
+* spinner       Show spinner in mode line
+* quiet         Show nothing
+
+If it is nil, view output buffer in other window."
+  :type '(choice
+          (const header-line)
+          (const lv-message)
+          (const spinner)
+          (const quiet)
+          (const nil))
+  :group 'async-copy-file)
+
+(defun async-copy-file--progress-stop (output-buffer current-buffer progress)
+  (pcase (car progress)
+    (`,(and type (guard (memq type '(header-line lv-message))))
+     (cancel-timer (cdr progress))
+     (if (eq type 'lv-message)
+         (lv-delete-window)
+       (with-current-buffer current-buffer
+         (setq-local header-line-format nil))))
+    (`spinner (funcall (cdr progress)))))
+
+(defun async-copy-file--progress-timer (output-buffer current-buffer type)
+  (with-current-buffer output-buffer
+    (let ((progress-line (save-excursion
+                           (goto-char (point-max))
+                           (re-search-backward "[:alnum:]" nil t)
+                           (buffer-substring-no-properties (point-at-bol) (point-at-eol)))))
+      (if (eq type 'lv-message)
+          (lv-message "[async-copy-file] %s" progress-line)
+        (with-current-buffer current-buffer
+          (setq-local header-line-format (format "[async-copy-file] %s" progress-line)))))))
+
+(defun async-copy-file--progress-start (output-buffer current-buffer)
+  (pcase async-copy-file-progress-type
+    (`,(and type (guard (memq type '(header-line lv-message))))
+     (if (eq type 'lv-message)
+         (lv-message "[async-copy-fie] Start...")
+       (setq-local header-line-format "[async-copy-fie] Start..."))
+     (let ((timer (run-with-timer 1 1
+                                  'async-copy-file--progress-timer
+                                  output-buffer
+                                  current-buffer
+                                  type)))
+       (cons type timer)))
+    (`spinner (cons 'spinner (spinner-start)))))
 
 ;;; Commands
 
@@ -132,11 +192,7 @@
 (cl-defun async-copy-file-quiet (from to &key overwrite extract-arg finish-fn dry-run &allow-other-keys)
   "Same as `async-copy-file' but without output window."
   (interactive)
-  (let ((display-buffer-alist
-         (list
-          (cons
-           (concat (regexp-quote async-copy-file-output-buffer-name) ".*")
-           (cons #'display-buffer-no-window nil)))))
+  (let ((async-copy-file-progress-type 'quiet))
     (async-copy-file from to
                      :overwrite   overwrite
                      :extract-arg extract-arg
@@ -161,7 +217,13 @@ optional paramemter `:strip-compoments', for example:
 If :DRY-RUN not nil, print the final commands instead of executing."
   (let* ((final-commands nil)
          (url? (string-match-p "^https?://" from))
-         (call-chain from))
+         (call-chain from)
+         (display-buffer-alist
+          (when (memq async-copy-file-progress-type '(header-line lv-message spinner quiet))
+            (list
+             (cons
+              (concat (regexp-quote async-copy-file-output-buffer-name) ".*")
+              (cons #'display-buffer-no-window nil))))))
 
     (when (and (not overwrite) (file-exists-p to))
       (signal 'file-already-exists (list "File or directory already exists" to)))
@@ -187,15 +249,20 @@ If :DRY-RUN not nil, print the final commands instead of executing."
     (if dry-run
         final-commands
       (let* ((output-buffer (async-copy-file--get-buffer-create))
+             (current-buffer (current-buffer))
              (proc (progn
                      (async-shell-command final-commands output-buffer)
-                     (get-buffer-process output-buffer))))
+                     (get-buffer-process output-buffer)))
+             (progress))
         (when (process-live-p proc)
+          (setq progress (async-copy-file--progress-start output-buffer current-buffer))
           (set-process-sentinel
            proc
            `(lambda (proc signal)
               (when (memq (process-status proc) '(exit signal))
                 (shell-command-sentinel proc signal)
+                (when ',progress
+                  (async-copy-file--progress-stop ,output-buffer ,current-buffer ',progress))
                 (when ',finish-fn
                   (funcall #',finish-fn ,output-buffer))))))))))
 
